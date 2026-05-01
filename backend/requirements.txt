@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+pydantic
+azure-cosmos
+azure-storage-blob
+openpyxl
+formulas
+pywin32
+python-dotenv

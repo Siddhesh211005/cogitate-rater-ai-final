@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.env
+.env.local
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Uploads (workbooks — go to Blob Storage, not git)
+backend/uploads/
+backend/data/
+
+# Azure + secrets
+*.pem
+*.key
+local.settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Logs
+*.log
+uvicorn.log
+
+# Temp files
+_tmp_*.xlsx
+*.tmp
