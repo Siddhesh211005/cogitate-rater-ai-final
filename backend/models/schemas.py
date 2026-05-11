@@ -47,6 +47,7 @@ class RaterDocument(BaseModel):
     rater_type: str = "custom"         # mpl | par | homeowners | excess | custom
     config: RaterConfig
     workbook_blob_url: str
+    workbook_local_path: str = ""
     has_schema_sheet: bool = False
     meta: dict[str, Any] = {}
 

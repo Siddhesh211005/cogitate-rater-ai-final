@@ -18,7 +18,9 @@ out/
 
 # Uploads (workbooks — go to Blob Storage, not git)
 backend/uploads/
+backend/raters/
 backend/data/
+backend/local_db/
 
 # Azure + secrets
 *.pem

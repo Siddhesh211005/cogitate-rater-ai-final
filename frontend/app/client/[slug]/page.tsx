@@ -16,7 +16,7 @@ interface FieldDef {
   description: string;
   group: string;
   options: string[];
-  default: any;
+  default: string | number | boolean | null | undefined;
   primary: boolean;
 }
 
@@ -33,8 +33,8 @@ export default function ClientRaterPage() {
   const [config, setConfig] = useState<RaterConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [inputs, setInputs] = useState<Record<string, any>>({});
-  const [outputs, setOutputs] = useState<Record<string, any> | null>(null);
+  const [inputs, setInputs] = useState<Record<string, string | number | boolean | null | undefined>>({});
+  const [outputs, setOutputs] = useState<Record<string, string | number | boolean | null | undefined> | null>(null);
   const [calculating, setCalculating] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
@@ -42,10 +42,11 @@ export default function ClientRaterPage() {
     fetch(`/api/raters/${slug}/config`)
       .then((r) => r.json())
       .then((data) => {
-        setConfig(data.config);
+        const loadedConfig = data.config ?? data.rater?.config;
+        setConfig(loadedConfig);
         // Seed defaults
-        const defaults: Record<string, any> = {};
-        data.config?.inputs?.forEach((f: FieldDef) => {
+        const defaults: Record<string, string | number | boolean | null | undefined> = {};
+        loadedConfig?.inputs?.forEach((f: FieldDef) => {
           defaults[f.field] = f.default ?? "";
         });
         setInputs(defaults);
@@ -68,6 +69,10 @@ export default function ClientRaterPage() {
         body: JSON.stringify({ inputs }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail ?? "Calculation failed. Please try again.");
+        return;
+      }
       setOutputs(data.outputs);
       if (data.download_url) setDownloadUrl(data.download_url);
     } catch {

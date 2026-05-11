@@ -2,8 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
+import sys
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+sys.path.insert(0, os.path.dirname(__file__))
 
 # ── Routers ───────────────────────────────────────────────────
 from routers import schema, excel, raters

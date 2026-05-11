@@ -12,11 +12,11 @@ interface FieldDef {
 
 interface Props {
   outputs: FieldDef[];
-  values: Record<string, any>;
+  values: Record<string, string | number | boolean | null | undefined>;
   downloadUrl?: string | null;
 }
 
-function formatValue(value: any, type: string): string {
+function formatValue(value: string | number | boolean | null | undefined, type: string): string {
   if (value === null || value === undefined) return "—";
   if (type === "number" && typeof value === "number") {
     return value.toLocaleString("en-US", {

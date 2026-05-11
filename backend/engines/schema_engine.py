@@ -7,7 +7,7 @@ import re
 # Called by both /api/schema/calculate and /api/raters/{slug}/calculate
 def calculate(rater: dict, inputs: dict) -> dict:
     config   = rater.get("config", {})
-    filepath = rater.get("workbook_blob_url", "")
+    filepath = rater.get("workbook_local_path") or rater.get("workbook_blob_url", "")
 
     if not filepath or not os.path.exists(filepath):
         raise FileNotFoundError(f"Workbook not found at: {filepath}")

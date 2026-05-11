@@ -16,13 +16,13 @@ interface FieldDef {
   description: string;
   group: string;
   options: string[];
-  default: any;
+  default: string | number | boolean | null | undefined;
 }
 
 interface Props {
   inputs: FieldDef[];
-  values: Record<string, any>;
-  onChange: (field: string, value: any) => void;
+  values: Record<string, string | number | boolean | null | undefined>;
+  onChange: (field: string, value: string | number | boolean | null | undefined) => void;
 }
 
 export default function RatingForm({ inputs, values, onChange }: Props) {
@@ -55,7 +55,7 @@ export default function RatingForm({ inputs, values, onChange }: Props) {
 
                 {f.type === "dropdown" && f.options?.length > 0 ? (
                   <Select
-                    value={values[f.field] ?? ""}
+                    value={String(values[f.field] ?? "")}
                     onValueChange={(v) => onChange(f.field, v)}
                   >
                     <SelectTrigger id={f.field}>
@@ -63,7 +63,7 @@ export default function RatingForm({ inputs, values, onChange }: Props) {
                     </SelectTrigger>
                     <SelectContent>
                       {f.options.map((opt) => (
-                        <SelectItem key={opt} value={opt}>
+                        <SelectItem key={String(opt)} value={String(opt)}>
                           {opt}
                         </SelectItem>
                       ))}
@@ -73,7 +73,7 @@ export default function RatingForm({ inputs, values, onChange }: Props) {
                   <Input
                     id={f.field}
                     type={f.type === "number" ? "number" : "text"}
-                    value={values[f.field] ?? ""}
+                    value={String(values[f.field] ?? "")}
                     onChange={(e) => onChange(f.field, e.target.value)}
                     placeholder={String(f.default ?? "")}
                   />

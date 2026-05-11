@@ -13,7 +13,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 @router.post("/upload")
 async def upload_rater(
     file: UploadFile = File(...),
-    name: str = Form(...),
+    name: str = Form(default=""),
     rater_type: str = Form(default="custom")
 ):
     try:
@@ -42,7 +42,7 @@ async def upload_rater(
             "filename": filename,
             "filepath": filepath,
             "original_name": file.filename,
-            "name": name,
+            "name": name or os.path.splitext(file.filename)[0],
             "rater_type": rater_type,
             "engine": "schema",
             "config": config,
@@ -56,7 +56,9 @@ async def upload_rater(
             "session_id": session["id"],
             "engine": "schema",
             "has_schema_sheet": has_schema_sheet,
-            "config": config
+            "config": config,
+            "parsed_config": config,
+            "rater_slug": (name or os.path.splitext(file.filename)[0]).lower().replace(" ", "-")
         }
 
     except HTTPException:
@@ -79,12 +81,22 @@ async def save_rater(payload: dict):
             raise HTTPException(status_code=400, detail="Missing required fields: upload_id, name, slug, config")
 
         from db.cosmos import create_rater
+        from db.cosmos import sessions_container
+        query = "SELECT * FROM c WHERE c.upload_id = @uid"
+        results = list(sessions_container.query_items(
+            query=query,
+            parameters=[{"name": "@uid", "value": upload_id}],
+            enable_cross_partition_query=True
+        ))
+        workbook_local_path = results[0].get("filepath", "") if results else ""
+
         rater = create_rater(
             name=name,
             slug=slug,
             engine="schema",
             rater_type=rater_type,
             config=config,
+            workbook_local_path=workbook_local_path,
             has_schema_sheet=config.get("has_schema_sheet", False)
         )
 
