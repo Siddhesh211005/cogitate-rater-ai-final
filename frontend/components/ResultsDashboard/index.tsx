@@ -18,6 +18,9 @@ interface Props {
 
 function formatValue(value: string | number | boolean | null | undefined, type: string): string {
   if (value === null || value === undefined) return "—";
+  if (typeof value === "string" && ["", "empty", "none", "null"].includes(value.trim().toLowerCase())) {
+    return "—";
+  }
   if (type === "number" && typeof value === "number") {
     return value.toLocaleString("en-US", {
       minimumFractionDigits: 2,

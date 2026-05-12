@@ -1,6 +1,5 @@
 import openpyxl
 import os
-import re
 
 
 # ── Main calculate function ───────────────────────────────────
@@ -17,56 +16,10 @@ def calculate(rater: dict, inputs: dict) -> dict:
 
 # ── Core calculation logic ────────────────────────────────────
 def calculate_from_file(filepath: str, config: dict, inputs: dict) -> dict:
-    wb = openpyxl.load_workbook(filepath, data_only=False)
-
-    # Determine which sheet to use
-    sheet_name = config.get("sheet")
-    if not sheet_name or sheet_name not in wb.sheetnames:
-        # Fall back to first non-hidden, non-schema sheet
-        sheet_name = next(
-            (s for s in wb.sheetnames if not s.startswith("_") and s.lower() != "application"),
-            wb.sheetnames[0]
-        )
-
-    ws = wb[sheet_name]
-
-    # ── Write inputs into workbook ────────────────────────────
-    input_fields = config.get("inputs", [])
-    for field_def in input_fields:
-        field = field_def.get("field")
-        cell  = field_def.get("cell")
-        ftype = field_def.get("type", "text")
-
-        if not cell:
-            continue
-
-        value = inputs.get(field, field_def.get("default"))
-
-        if value is not None:
-            value = _cast_value(value, ftype)
-            ws[cell] = value
-
-    # ── Save to temp file and reload with data_only ───────────
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        tmp_path = tmp.name
-
-    try:
-        wb.save(tmp_path)
-        wb.close()
-
-        # Try formula evaluation with formulas library
-        try:
-            outputs = _evaluate_with_formulas(tmp_path, config)
-        except Exception:
-            # Fallback: read with openpyxl data_only
-            outputs = _evaluate_with_openpyxl(tmp_path, config)
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-    return outputs
+    # Schema engine now reuses the hardened Excel calculation path so both
+    # engines produce consistent values across test-calculate and live rating.
+    from engines.excel_engine import calculate_from_file as excel_calculate_from_file
+    return excel_calculate_from_file(filepath, config, inputs)
 
 
 # ── Evaluate using Python formulas library ────────────────────
@@ -77,24 +30,23 @@ def _evaluate_with_formulas(filepath: str, config: dict) -> dict:
         xl_model.calculate()
 
         outputs = {}
-        output_fields = config.get("outputs", [])
-
-        # Get sheet name
         sheet_name = config.get("sheet", "Rater")
 
-        for field_def in output_fields:
+        for field_def in config.get("outputs", []):
             field = field_def.get("field")
             cell  = field_def.get("cell")
             if not field or not cell:
                 continue
             try:
-                # formulas lib uses uppercase sheet+cell reference
-                ref = f"'{sheet_name}'!{cell.upper()}"
-                val = xl_model.cells.get(ref)
+                val = _get_formula_cell(xl_model, filepath, sheet_name, cell)
+
                 if val is not None:
                     result = val.value
                     if hasattr(result, '__iter__') and not isinstance(result, str):
-                        result = list(result)[0] if result else None
+                        try:
+                            result = next(iter(result.flat))
+                        except Exception:
+                            result = None
                     outputs[field] = _serialize(result)
                 else:
                     outputs[field] = None
@@ -105,6 +57,56 @@ def _evaluate_with_formulas(filepath: str, config: dict) -> dict:
 
     except ImportError:
         raise Exception("formulas library not installed")
+
+
+def _evaluate_with_com(filepath: str, config: dict) -> dict:
+    from engines.excel_engine import _calculate_with_com
+
+    return _calculate_with_com(filepath, config)
+
+
+def _get_formula_cell(xl_model, filepath: str, sheet_name: str, cell: str):
+    for ref in _build_reference_candidates(filepath, sheet_name, cell):
+        val = xl_model.cells.get(ref)
+        if val is not None:
+            return val
+
+    # Fallback for workbooks where formulas normalizes refs differently
+    target_cell = cell.upper()
+    target_sheet = sheet_name.upper()
+    loose_match = None
+
+    for ref, val in xl_model.cells.items():
+        normalized = _normalize_ref(ref)
+        if "!" not in normalized:
+            continue
+        left, right = normalized.rsplit("!", 1)
+        sheet_part = left.split("]")[-1]
+
+        if right == target_cell and sheet_part == target_sheet:
+            return val
+        if right == target_cell and loose_match is None:
+            loose_match = val
+
+    return loose_match
+
+
+def _build_reference_candidates(filepath: str, sheet_name: str, cell: str) -> list[str]:
+    filename = os.path.basename(filepath)
+    sheet_variants = [sheet_name, sheet_name.upper(), sheet_name.lower()]
+    refs = []
+    for sheet in sheet_variants:
+        refs.extend([
+            f"'{sheet}'!{cell.upper()}",
+            f"{sheet}!{cell.upper()}",
+            f"'[{filename}]{sheet}'!{cell.upper()}",
+            f"[{filename}]{sheet}!{cell.upper()}",
+        ])
+    return list(dict.fromkeys(refs))
+
+
+def _normalize_ref(ref: str) -> str:
+    return str(ref).replace("'", "").strip().upper()
 
 
 # ── Fallback: read calculated values with openpyxl ───────────
@@ -140,6 +142,11 @@ def _evaluate_with_openpyxl(filepath: str, config: dict) -> dict:
 def _cast_value(value, ftype: str):
     try:
         if ftype == "number":
+            if isinstance(value, str):
+                cleaned = value.strip().replace(",", "").replace("$", "")
+                if cleaned.startswith("(") and cleaned.endswith(")"):
+                    cleaned = f"-{cleaned[1:-1]}"
+                return float(cleaned)
             return float(value)
         elif ftype == "dropdown":
             return str(value)
@@ -150,8 +157,21 @@ def _cast_value(value, ftype: str):
 
 
 def _serialize(value):
+    # formulas library can return an Empty token object
+    # which stringifies as "empty"; normalize to None.
+    if value is not None and str(value).strip().lower() in {"empty", "none", "null", ""}:
+        return None
     if value is None:
         return None
     if isinstance(value, (int, float)):
         return round(float(value), 4)
     return str(value)
+<<<<<<< Updated upstream
+=======
+
+
+def _outputs_empty(outputs: dict | None) -> bool:
+    if not outputs:
+        return True
+    return all(v is None for v in outputs.values())
+>>>>>>> Stashed changes

@@ -9,6 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+<<<<<<< Updated upstream
+=======
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import NoSchemaFallback from "@/components/NoSchemaFallback";
+>>>>>>> Stashed changes
 import EngineSelector from "@/components/EngineSelector";
 import NoSchemaFallback from "@/components/NoSchemaFallback";
 
@@ -32,11 +43,16 @@ interface FieldDef {
 interface ParsedConfig {
   slug?: string;
   name?: string;
+<<<<<<< Updated upstream
   sheet: string;
+=======
+  sheet?: string;
+>>>>>>> Stashed changes
   inputs: FieldDef[];
   outputs: FieldDef[];
 }
 
+<<<<<<< Updated upstream
 interface NoSchemaUpload {
   upload_id: string;
   filepath: string;
@@ -57,6 +73,19 @@ function defaultsFromConfig(config: ParsedConfig) {
     defaults[field.field] = field.default ?? "";
   });
   return defaults;
+=======
+function toSlug(value: string): string {
+  const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || "rater";
+}
+
+function formatOutputValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "string" && ["", "empty", "none", "null"].includes(value.trim().toLowerCase())) {
+    return "—";
+  }
+  return String(value);
+>>>>>>> Stashed changes
 }
 
 export default function UploadPage() {
@@ -96,11 +125,23 @@ export default function UploadPage() {
   function pollWarmStatus(id: string) {
     if (intervalRef.current) clearInterval(intervalRef.current);
 
+<<<<<<< Updated upstream
     intervalRef.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/excel/warm-status/${id}`);
         const data = await res.json();
         setWarmStatus(data.status);
+=======
+  if (!raterName.trim()) {
+    setError("Please enter a rater name before uploading.");
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("name", raterName.trim());          // ← was missing
+  fd.append("rater_type", raterType);           // ← was missing
+>>>>>>> Stashed changes
 
         if (data.status === "ready") {
           clearInterval(intervalRef.current!);
@@ -111,6 +152,7 @@ export default function UploadPage() {
           setStep(3);
         }
 
+<<<<<<< Updated upstream
         if (data.status === "failed" || data.status === "error") {
           clearInterval(intervalRef.current!);
           intervalRef.current = null;
@@ -167,6 +209,87 @@ export default function UploadPage() {
         const config = data.parsed_config ?? data.config;
         setParsedConfig(config);
         setTestInputs(defaultsFromConfig(config));
+=======
+  try {
+    const res = await fetch(endpoint, { method: "POST", body: fd });
+    const data = await res.json();
+
+    if (!res.ok) {
+      // ← Fix React crash: safely stringify any error shape
+      const msg =
+        typeof data.detail === "string"
+          ? data.detail
+          : Array.isArray(data.detail)
+          ? data.detail.map((e: any) => e.msg).join(", ")
+          : `Upload failed (${res.status})`;
+      setError(msg);
+      return;
+    }
+
+    if (data.status === "no_schema") {
+      setNoSchemaDetected(true);
+      return;
+    }
+
+    if (!data.upload_id) {
+      setError("Backend did not return an upload_id.");
+      return;
+    }
+
+    const config = data.config ?? data.parsed_config;
+    if (!config) {
+      setError("Backend did not return parsed config.");
+      return;
+    }
+    setUploadId(data.upload_id);
+    setParsedConfig(config);
+
+    // Set default test inputs from config
+    const defaults: Record<string, any> = {};
+    config?.inputs?.forEach((f: FieldDef) => {
+      defaults[f.field] = f.default ?? "";
+    });
+    setTestInputs(defaults);
+
+    setStep(engine === "excel" ? 2 : 3); // schema goes straight to step 3
+    if (engine === "excel") pollWarmStatus(data.upload_id);
+
+  } catch {
+    setError("Upload failed. Is the backend running?");
+  }
+}
+  // ── Step 2: Poll warm status ─────────────────────────────────────────────
+ const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+function pollWarmStatus(id: string) {
+  if (intervalRef.current) clearInterval(intervalRef.current);
+
+  intervalRef.current = setInterval(async () => {
+    try {
+      if (!engine) return;
+      const res = await fetch(`/api/${engine}/warm-status/${id}`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Warm-up failed.");
+      }
+
+      const status = data?.session?.status ?? data?.status ?? "waiting";
+      const config = data?.session?.config ?? data?.parsed_config ?? data?.config;
+      setWarmStatus(status);
+
+      if (status === "ready" || status === "parsed") {
+        clearInterval(intervalRef.current!);
+        intervalRef.current = null;
+        if (!config) {
+          throw new Error("Warm status did not include parsed config.");
+        }
+        setParsedConfig(config);
+        const defaults: Record<string, any> = {};
+        config?.inputs?.forEach((f: FieldDef) => {
+          defaults[f.field] = f.default ?? "";
+        });
+        setTestInputs(defaults);
+>>>>>>> Stashed changes
         setStep(3);
       }
     } catch {
@@ -175,16 +298,26 @@ export default function UploadPage() {
   }
 
   async function handleTestCalculate() {
+<<<<<<< Updated upstream
     if (!parsedConfig) return;
     if (engine !== "excel") {
       setError("Schema-engine upload testing is not wired here yet. Save it, then test from the client panel.");
       return;
     }
 
+=======
+    if (!parsedConfig || !engine) return;
+>>>>>>> Stashed changes
     setTestLoading(true);
     setTestOutputs(null);
     setError("");
 
+<<<<<<< Updated upstream
+=======
+    const endpoint =
+      engine === "excel" ? "/api/excel/test-calculate" : "/api/schema/test-calculate";
+
+>>>>>>> Stashed changes
     try {
       const res = await fetch("/api/excel/test-calculate", {
         method: "POST",
@@ -193,7 +326,15 @@ export default function UploadPage() {
       });
       const data = await res.json();
       if (!res.ok) {
+<<<<<<< Updated upstream
         setError(data.detail ?? "Test calculation failed.");
+=======
+        const msg =
+          typeof data.detail === "string"
+            ? data.detail
+            : `Test calculation failed (${res.status})`;
+        setError(msg);
+>>>>>>> Stashed changes
         return;
       }
       setTestOutputs(data.outputs);
@@ -239,7 +380,7 @@ export default function UploadPage() {
   }
 
   async function handleSave() {
-    if (!parsedConfig) return;
+    if (!parsedConfig || !engine) return;
     setSaving(true);
     setError("");
 
@@ -247,22 +388,36 @@ export default function UploadPage() {
     const endpoint = engine === "excel" ? "/api/excel/save" : "/api/schema/save";
 
     try {
+<<<<<<< Updated upstream
+=======
+      const slug = toSlug(raterName);
+      const endpoint = engine === "excel" ? "/api/excel/save" : "/api/schema/save";
+>>>>>>> Stashed changes
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           upload_id: uploadId,
+<<<<<<< Updated upstream
           slug,
           name: raterName || slug,
+=======
+          name: raterName,
+          slug,
+>>>>>>> Stashed changes
           rater_type: raterType,
           config: { ...parsedConfig, slug, name: raterName || slug },
         }),
       });
       const data = await res.json();
-      if (data.status === "ok") {
+      if (res.ok && data.status === "ok") {
         setStep(4);
       } else {
-        setError(data.detail ?? "Save failed.");
+        const msg =
+          typeof data.detail === "string"
+            ? data.detail
+            : `Save failed (${res.status})`;
+        setError(msg);
       }
     } catch {
       setError("Save failed.");
@@ -331,6 +486,7 @@ export default function UploadPage() {
         {noSchemaDetected && <NoSchemaFallback onChoice={handleFallbackChoice} />}
 
         {!noSchemaDetected && step === 1 && (
+<<<<<<< Updated upstream
           <div className="space-y-6">
             <div
               {...getRootProps()}
@@ -348,14 +504,57 @@ export default function UploadPage() {
                 </>
               )}
             </div>
+=======
+  <div className="space-y-6">
+    {/* Rater name — required before upload */}
+    <div className="space-y-2">
+      <Label>Rater Name *</Label>
+      <Input
+        value={raterName}
+        onChange={(e) => setRaterName(e.target.value)}
+        placeholder="e.g. MPL Old Republic v2"
+      />
+    </div>
+>>>>>>> Stashed changes
 
-            <EngineSelector selected={engine} onSelect={setEngine} />
+    <div
+      {...getRootProps()}
+      className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-colors ${
+        isDragActive
+          ? "border-primary bg-primary/5"
+          : "border-border hover:border-primary/50"
+      }`}
+    >
+      <input {...getInputProps()} />
+      {file ? (
+        <p className="font-medium">{file.name}</p>
+      ) : (
+        <>
+          <p className="text-lg font-medium">Drop your .xlsx rater here</p>
+          <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
+        </>
+      )}
+    </div>
 
+<<<<<<< Updated upstream
             <Button className="w-full" disabled={!file || !engine} onClick={handleUpload}>
               Upload & Parse
             </Button>
           </div>
         )}
+=======
+    <EngineSelector selected={engine} onSelect={setEngine} />
+
+    <Button
+      className="w-full"
+      disabled={!file || !engine || !raterName.trim()}
+      onClick={handleUpload}
+    >
+      Upload & Parse →
+    </Button>
+  </div>
+)}
+>>>>>>> Stashed changes
 
         {step === 2 && (
           <div className="text-center py-24 space-y-4">
@@ -392,6 +591,7 @@ export default function UploadPage() {
                         {field.group ? ` - ${field.group}` : ""}
                       </p>
                     </div>
+<<<<<<< Updated upstream
                     <Input
                       className="w-40 text-sm"
                       value={String(testInputs[field.field] ?? "")}
@@ -399,6 +599,47 @@ export default function UploadPage() {
                         setTestInputs((prev) => ({ ...prev, [field.field]: event.target.value }))
                       }
                     />
+=======
+                    {f.type === "dropdown" && f.options?.length > 0 ? (
+                      <Select
+                        value={
+                          testInputs[f.field] === undefined ||
+                          testInputs[f.field] === null ||
+                          testInputs[f.field] === ""
+                            ? undefined
+                            : String(testInputs[f.field])
+                        }
+                        onValueChange={(v) =>
+                          setTestInputs((prev) => ({
+                            ...prev,
+                            [f.field]: v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-40 text-sm">
+                          <SelectValue placeholder="Select…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {f.options.map((opt) => (
+                            <SelectItem key={`${f.field}-${opt}`} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        className="w-40 text-sm"
+                        value={testInputs[f.field] ?? ""}
+                        onChange={(e) =>
+                          setTestInputs((prev) => ({
+                            ...prev,
+                            [f.field]: e.target.value,
+                          }))
+                        }
+                      />
+                    )}
+>>>>>>> Stashed changes
                   </div>
                 ))}
               </div>
@@ -418,8 +659,13 @@ export default function UploadPage() {
                       </p>
                     </div>
                     {testOutputs && (
+<<<<<<< Updated upstream
                       <Badge variant={field.primary ? "default" : "secondary"}>
                         {testOutputs[field.field] ?? "-"}
+=======
+                      <Badge variant={f.primary ? "default" : "secondary"}>
+                        {formatOutputValue(testOutputs[f.field])}
+>>>>>>> Stashed changes
                       </Badge>
                     )}
                     {testLoading && <Skeleton className="h-6 w-20" />}

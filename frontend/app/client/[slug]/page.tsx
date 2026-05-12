@@ -40,13 +40,29 @@ export default function ClientRaterPage() {
 
   useEffect(() => {
     fetch(`/api/raters/${slug}/config`)
-      .then((r) => r.json())
+      .then(async (r) => ({ ok: r.ok, status: r.status, data: await r.json() }))
       .then((data) => {
+<<<<<<< Updated upstream
         const loadedConfig = data.config ?? data.rater?.config;
         setConfig(loadedConfig);
         // Seed defaults
         const defaults: Record<string, string | number | boolean | null | undefined> = {};
         loadedConfig?.inputs?.forEach((f: FieldDef) => {
+=======
+        const config = data.data?.config ?? data.data?.rater?.config;
+        if (!data.ok || !config) {
+          throw new Error(
+            typeof data.data?.detail === "string"
+              ? data.data.detail
+              : `Failed to load rater config (${data.status})`
+          );
+        }
+
+        setConfig(config);
+        // Seed defaults
+        const defaults: Record<string, any> = {};
+        config.inputs?.forEach((f: FieldDef) => {
+>>>>>>> Stashed changes
           defaults[f.field] = f.default ?? "";
         });
         setInputs(defaults);
@@ -70,7 +86,15 @@ export default function ClientRaterPage() {
       });
       const data = await res.json();
       if (!res.ok) {
+<<<<<<< Updated upstream
         setError(data.detail ?? "Calculation failed. Please try again.");
+=======
+        setError(
+          typeof data.detail === "string"
+            ? data.detail
+            : `Calculation failed (${res.status})`
+        );
+>>>>>>> Stashed changes
         return;
       }
       setOutputs(data.outputs);

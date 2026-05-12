@@ -14,7 +14,7 @@ Rate limit: ~40 req/min on free tier. We batch all fields into a
 single prompt to stay well within limits.
 
 Config (environment variables):
-  NIM_API_KEY   — NVIDIA NIM API key
+  NIM_API_KEY   — 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
   NIM_BASE_URL  — defaults to https://integrate.api.nvidia.com/v1
   NIM_MODEL     — defaults to meta/llama-3.1-8b-instruct
 """
