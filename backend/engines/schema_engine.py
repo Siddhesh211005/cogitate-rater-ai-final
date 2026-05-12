@@ -166,12 +166,9 @@ def _serialize(value):
     if isinstance(value, (int, float)):
         return round(float(value), 4)
     return str(value)
-<<<<<<< Updated upstream
-=======
 
 
 def _outputs_empty(outputs: dict | None) -> bool:
     if not outputs:
         return True
     return all(v is None for v in outputs.values())
->>>>>>> Stashed changes
