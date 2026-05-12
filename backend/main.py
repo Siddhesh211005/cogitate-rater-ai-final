@@ -3,6 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import sys
+import logging
+
+# ── Logging setup (before any imports that use logging) ───────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 sys.path.insert(0, os.path.dirname(__file__))

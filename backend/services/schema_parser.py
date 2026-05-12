@@ -1,17 +1,18 @@
 import re
+import logging
 from pathlib import Path
 from typing import Any
+from collections import Counter
 
 import openpyxl
-<<<<<<< Updated upstream
 
-=======
-import os
-import re
->>>>>>> Stashed changes
+logger = logging.getLogger(__name__)
 
 SCHEMA_SHEET_NAME = "_Schema"
 CLASS_BUCKET_PATTERN = re.compile(r"^class\s+(?:[ivxlcdm]+|\d+)$", re.IGNORECASE)
+BOUNDARY_SECTION_MARKERS = {"boundary", "parameter", "minimum", "maximum", "breach"}
+# Pattern to detect data-code labels like '78PT10USD', '1MNS', etc.
+_DATA_CODE_PATTERN = re.compile(r"^\d+[A-Za-z]")
 
 
 def check_schema_sheet(filepath: str | Path) -> bool:
@@ -24,9 +25,8 @@ def check_schema_sheet(filepath: str | Path) -> bool:
         return False
 
 
-<<<<<<< Updated upstream
 def parse_schema(filepath: str | Path, *, require_schema_sheet: bool = False) -> dict[str, Any]:
-    wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(filepath, read_only=False, data_only=False)
     try:
         has_schema_sheet = SCHEMA_SHEET_NAME in wb.sheetnames
         if has_schema_sheet:
@@ -38,39 +38,15 @@ def parse_schema(filepath: str | Path, *, require_schema_sheet: bool = False) ->
                 )
             config = _infer_from_workbook(wb)
 
+        if not config.get("sheet"):
+            config["sheet"] = _resolve_rater_sheet(wb)
+
+        config = normalize_config(config)
         config["has_schema_sheet"] = has_schema_sheet
         config["sheets"] = wb.sheetnames
         return config
     finally:
         wb.close()
-=======
-# ── Parse _Schema sheet into engine-neutral config ────────────
-# Config shape defined in Section 10 of context file
-def parse_schema(filepath: str) -> dict:
-    # Use normal mode for robust inference: PAR-style workbooks often need
-    # random cell access and accurate worksheet dimensions, which are not
-    # reliable in read_only mode for all files.
-    wb = openpyxl.load_workbook(filepath, read_only=False, data_only=False)
-
-    has_schema_sheet = SCHEMA_SHEET_NAME in wb.sheetnames
-
-    if has_schema_sheet:
-        config = _parse_from_schema_sheet(wb)
-    else:
-        config = _infer_from_workbook(wb)
-
-    if not config.get("sheet"):
-        config["sheet"] = _resolve_rater_sheet(wb)
-
-    config = normalize_config(config)
-    config["has_schema_sheet"] = has_schema_sheet
-
-    # Store sheet names for reference
-    config["sheets"] = wb.sheetnames
-
-    wb.close()
-    return config
->>>>>>> Stashed changes
 
 
 def _parse_options(options_raw: Any) -> list[Any]:
@@ -113,77 +89,42 @@ def _parse_from_schema_sheet(wb) -> dict[str, Any]:
     ws = wb[SCHEMA_SHEET_NAME]
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
-<<<<<<< Updated upstream
         raise ValueError("_Schema sheet is empty.")
 
     headers = [str(header).strip().lower() if header else "" for header in rows[0]]
     inputs: list[dict[str, Any]] = []
     outputs: list[dict[str, Any]] = []
-=======
-        return {"inputs": [], "outputs": [], "sheet": _resolve_rater_sheet(wb)}
-
-    # Header row: field, cell, type, label, direction, group, options, default
-    headers = [str(h).strip().lower() if h else "" for h in rows[0]]
-
-    inputs = []
-    outputs = []
-    seen_fields = set()
+    seen_fields: set[str] = set()
     schema_sheet = None
->>>>>>> Stashed changes
 
     for row in rows[1:]:
         if not any(row):
             continue
 
         entry = {}
-<<<<<<< Updated upstream
         for index, header in enumerate(headers):
             if not header:
                 continue
             entry[header] = row[index] if index < len(row) else None
 
-        field = entry.get("field")
-        cell = entry.get("cell")
-        if not field or not cell:
-            continue
-
-        field = str(field).strip()
-        cell = str(cell).strip()
-        field_type = str(entry.get("type") or "text").strip()
-        direction = str(entry.get("direction") or "input").strip().lower()
-        label = str(entry.get("label") or field).strip()
-        group = str(entry.get("group") or "General").strip()
-        options = _parse_options(entry.get("options"))
-        default = _parse_default(entry.get("default"), field_type)
-=======
-        for i, header in enumerate(headers):
-            val = row[i] if i < len(row) else None
-            entry[header] = val
-
         field_raw = entry.get("field")
-        cell      = entry.get("cell")
-        ftype     = entry.get("type", "text")
-        label     = entry.get("label", field_raw)
-        direction = str(entry.get("direction", "input")).lower()
-        group     = entry.get("group", "General")
-        options   = entry.get("options", "")
-        default   = entry.get("default", "")
-        row_sheet = entry.get("sheet")
-
-        if row_sheet and not schema_sheet:
-            schema_sheet = str(row_sheet).strip()
-
+        cell = entry.get("cell")
         if not cell:
             continue
 
-        field_seed = field_raw or label or cell
-        field = _unique_field_name(_sanitize_field_name(str(field_seed)), seen_fields)
+        cell = str(cell).strip()
+        row_sheet = entry.get("sheet")
+        if row_sheet and not schema_sheet:
+            schema_sheet = str(row_sheet).strip()
 
-        # Parse options — semicolon separated in _Schema sheet
-        parsed_options = []
-        if options:
-            parsed_options = [o.strip() for o in str(options).split(";") if o.strip()]
->>>>>>> Stashed changes
+        field_seed = field_raw or entry.get("label") or cell
+        field = _unique_field_name(_sanitize_field_name(str(field_seed)), seen_fields)
+        field_type = str(entry.get("type") or "text").strip()
+        direction = str(entry.get("direction") or "input").strip().lower()
+        label = str(entry.get("label") or field_raw or field).strip()
+        group = str(entry.get("group") or "General").strip()
+        options = _parse_options(entry.get("options"))
+        default = _parse_default(entry.get("default"), field_type)
 
         item: dict[str, Any] = {
             "field": field,
@@ -194,11 +135,9 @@ def _parse_from_schema_sheet(wb) -> dict[str, Any]:
         }
 
         if direction == "output":
-<<<<<<< Updated upstream
-            item["primary"] = _coerce_bool(entry.get("primary")) or field == "premium"
-=======
             item["primary"] = _to_bool(entry.get("primary", False))
->>>>>>> Stashed changes
+            if field == "premium":
+                item["primary"] = True
             outputs.append(item)
         else:
             if options:
@@ -208,36 +147,19 @@ def _parse_from_schema_sheet(wb) -> dict[str, Any]:
                 item["default"] = default
             inputs.append(item)
 
-<<<<<<< Updated upstream
     if not inputs and not outputs:
         raise ValueError("_Schema sheet has no usable field definitions.")
 
     if outputs and not any(output.get("primary") for output in outputs):
         outputs[0]["primary"] = True
 
-    rater_sheet = next((name for name in wb.sheetnames if name != SCHEMA_SHEET_NAME), "Sheet1")
     config = {
-        "sheet": rater_sheet,
+        "sheet": schema_sheet or _resolve_rater_sheet(wb),
         "inputs": inputs,
         "outputs": outputs,
     }
     _inject_schedule_mode(config)
     return config
-
-
-def _coerce_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    return str(value).strip().lower() in {"1", "true", "yes", "y"}
-
-=======
-    return {
-        "inputs": inputs,
-        "outputs": outputs,
-        "sheet": schema_sheet or _resolve_rater_sheet(wb),
-    }
 
 
 # ── Infer schema from workbook structure (Schema engine path) ──
@@ -255,17 +177,12 @@ def _infer_from_workbook(wb) -> dict:
     best_sheet = None
     best_inputs = []
     best_outputs = []
-    best_score = -1
+    best_score = float("-inf")
 
     for sheet_name in candidate_sheets:
         ws = wb[sheet_name]
         inputs, outputs = _infer_fields_from_sheet(ws)
-        score = len(inputs) + len(outputs)
-        lower_name = sheet_name.lower()
-        if "input" in lower_name and "output" in lower_name:
-            score += 10
-        elif "output" in lower_name:
-            score += 5
+        score = _score_inferred_sheet(sheet_name, ws, inputs, outputs)
         if score > best_score:
             best_sheet = sheet_name
             best_inputs = inputs
@@ -274,27 +191,62 @@ def _infer_from_workbook(wb) -> dict:
 
     if not best_sheet:
         return {"inputs": [], "outputs": [], "sheet": None}
->>>>>>> Stashed changes
 
-def _infer_from_workbook(wb) -> dict[str, Any]:
-    rater_sheet = next((name for name in wb.sheetnames if not name.startswith("_")), None)
     return {
-<<<<<<< Updated upstream
-        "inputs": [],
-        "outputs": [],
-        "sheet": rater_sheet,
-        "inferred": True,
-        "note": "No _Schema sheet found. Schema inference is not production-ready for Excel COM raters.",
-    }
-
-
-def auto_generate_schema(filepath: str | Path) -> dict[str, Any]:
-=======
         "inputs": best_inputs,
         "outputs": best_outputs,
         "sheet": best_sheet,
         "inferred": True,
     }
+
+
+def _score_inferred_sheet(sheet_name: str, ws, inputs: list[dict], outputs: list[dict]) -> float:
+    # Avoid selecting large lookup/rate tables over the actual user-facing
+    # input sheet by combining quality signals rather than raw field count.
+    inferred_count = len(inputs) + len(outputs)
+    score = float(min(inferred_count, 120))
+
+    normalized_name = _normalize_heading(sheet_name)
+    if "input" in normalized_name and "output" in normalized_name:
+        score += 300
+    elif "input" in normalized_name:
+        score += 140
+    elif "output" in normalized_name:
+        score += 90
+
+    heading_hits = _count_heading_hits(ws)
+    score += min(heading_hits, 6) * 25
+
+    if not outputs:
+        score -= 25
+
+    labels = [str(item.get("label", "")).strip().lower() for item in inputs if str(item.get("label", "")).strip()]
+    if labels:
+        counts = Counter(labels)
+        duplicate_labels = sum(count - 1 for count in counts.values() if count > 1)
+        duplicate_ratio = duplicate_labels / len(labels)
+        score -= duplicate_ratio * 180
+
+    if inferred_count > 250:
+        score -= 120
+    if inferred_count > 800:
+        score -= 160
+
+    return score
+
+
+def _count_heading_hits(ws, *, max_rows: int = 80, max_cols: int = 20) -> int:
+    heading_hits = 0
+    row_cap = min(max(ws.max_row or 1, 1), max_rows)
+    col_cap = min(max(ws.max_column or 1, 1), max_cols)
+
+    for row_num in range(1, row_cap + 1):
+        for col_num in range(1, col_cap + 1):
+            value = ws.cell(row=row_num, column=col_num).value
+            if isinstance(value, str) and _is_heading_text(value):
+                heading_hits += 1
+
+    return heading_hits
 
 
 def _infer_fields_from_sheet(ws) -> tuple[list[dict], list[dict]]:
@@ -306,6 +258,12 @@ def _infer_fields_from_sheet(ws) -> tuple[list[dict], list[dict]]:
     outputs: list[dict] = []
     seen_fields: set[str] = set()
     seen_value_cells: set[str] = set()
+    seen_label_cells: set[str] = set()          # ← NEW: prevent same label cell being used twice
+    seen_labels: set[str] = set()               # ← NEW: deduplicate by normalised label text
+
+    # Pre-scan: identify column regions that belong to the boundary conditions
+    # table so we can skip them entirely.
+    boundary_columns = _detect_boundary_columns(ws, max_row, max_col)
 
     for row_num in range(1, max_row + 1):
         non_empty_cells = []
@@ -318,12 +276,33 @@ def _infer_fields_from_sheet(ws) -> tuple[list[dict], list[dict]]:
             continue
 
         for label_cell in non_empty_cells:
+            # Skip if this cell was already used as a label
+            if label_cell.coordinate in seen_label_cells:
+                continue
+
+            # Skip cells already consumed as value cells (e.g. 'HKD' at D10)
+            if label_cell.coordinate in seen_value_cells:
+                continue
+
+            # Skip cells in boundary-condition column regions
+            if label_cell.column in boundary_columns:
+                continue
+
             label = label_cell.value
             if not _is_label_candidate(label):
                 continue
 
             label_str = str(label).strip()
             if _is_heading_text(label_str):
+                continue
+
+            # Skip data-code-like labels (e.g. '78PT10USD', '1MNS')
+            if _is_data_code(label_str):
+                continue
+
+            # Deduplicate by normalised label text
+            label_key = label_str.strip().lower()
+            if label_key in seen_labels:
                 continue
 
             value_cell = _find_value_cell_to_right(
@@ -336,8 +315,16 @@ def _infer_fields_from_sheet(ws) -> tuple[list[dict], list[dict]]:
             if value_cell is None:
                 continue
 
+            # Skip if the value cell is in a boundary column region
+            if value_cell.column in boundary_columns:
+                continue
+
             section_header = _find_section_header(ws, row_num, label_cell.column, max_col)
             if _is_excluded_section(section_header):
+                continue
+
+            # Also check if this row has boundary markers in neighbouring cells
+            if _row_in_boundary_region(ws, row_num, label_cell.column, max_col):
                 continue
 
             raw_value = value_cell.value
@@ -367,6 +354,8 @@ def _infer_fields_from_sheet(ws) -> tuple[list[dict], list[dict]]:
                 })
 
             seen_value_cells.add(value_cell.coordinate)
+            seen_label_cells.add(label_cell.coordinate)
+            seen_labels.add(label_key)
 
     return inputs, outputs
 
@@ -387,15 +376,25 @@ def _find_value_cell_to_right(ws, row_num: int, start_col: int, max_col: int, se
 
 
 def _find_section_header(ws, row_num: int, col_num: int, max_col: int) -> str:
+    best_text = ""
+    best_priority = -1
+    best_distance = 999
+
     for r in range(row_num - 1, max(0, row_num - 7), -1):
+        distance = row_num - r
         for c in range(max(1, col_num - 2), min(max_col, col_num + 2) + 1):
             v = ws.cell(row=r, column=c).value
             if not isinstance(v, str):
                 continue
             text = v.strip()
             if _is_heading_text(text):
-                return text
-    return ""
+                priority = _heading_priority(text)
+                if priority > best_priority or (priority == best_priority and distance < best_distance):
+                    best_text = text
+                    best_priority = priority
+                    best_distance = distance
+
+    return best_text
 
 
 def _has_value(value) -> bool:
@@ -420,10 +419,9 @@ def _is_label_candidate(value) -> bool:
 
 
 def _is_heading_text(value: str) -> bool:
-    raw = value.strip().lower()
-    if not raw:
+    text = _normalize_heading(value)
+    if not text:
         return False
-    text = re.sub(r"[^a-z0-9 ]+", "", raw).strip()
     if text.startswith("please fill"):
         return True
     return text in {
@@ -440,14 +438,69 @@ def _is_heading_text(value: str) -> bool:
     }
 
 
+def _heading_priority(value: str) -> int:
+    text = _normalize_heading(value)
+    if "boundary" in text:
+        return 40
+    if "output" in text or "result" in text:
+        return 30
+    if "input" in text or text.startswith("please fill"):
+        return 20
+    if text in BOUNDARY_SECTION_MARKERS:
+        return 10
+    return 0
+
+
+def _normalize_heading(value: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", "", value.strip().lower()).strip()
+
+
 def _is_output_section(header: str) -> bool:
     h = (header or "").strip().lower()
     return "output" in h or "result" in h
 
 
 def _is_excluded_section(header: str) -> bool:
-    h = (header or "").strip().lower()
-    return "boundary" in h
+    h = _normalize_heading(header or "")
+    return any(marker in h for marker in BOUNDARY_SECTION_MARKERS)
+
+
+def _detect_boundary_columns(ws, max_row: int, max_col: int) -> set[int]:
+    """Pre-scan the first ~15 rows to find columns that belong to a boundary
+    conditions table (headers like 'Parameter', 'Minimum', 'Maximum', 'Breach?').
+    Returns a set of column numbers to exclude."""
+    boundary_cols: set[int] = set()
+    scan_rows = min(max_row, 15)
+    for r in range(1, scan_rows + 1):
+        for c in range(1, max_col + 1):
+            v = ws.cell(row=r, column=c).value
+            if isinstance(v, str) and _normalize_heading(v) in BOUNDARY_SECTION_MARKERS:
+                boundary_cols.add(c)
+    return boundary_cols
+
+
+def _row_in_boundary_region(ws, row_num: int, label_col: int, max_col: int) -> bool:
+    """Check if any cell within ±2 columns of the label contains a boundary
+    keyword, indicating the label is part of a boundary conditions table.
+    Uses a narrow window to avoid blocking legitimate labels in distant
+    column groups (e.g. output labels at col F when boundary is at col J)."""
+    for c in range(max(1, label_col - 2), min(max_col, label_col + 2) + 1):
+        v = ws.cell(row=row_num, column=c).value
+        if isinstance(v, str) and _normalize_heading(v) in BOUNDARY_SECTION_MARKERS:
+            return True
+    return False
+
+
+def _is_data_code(label: str) -> bool:
+    """Detect concatenated data codes like '78PT10USD', '1MNS', '5FS'.
+    These are reference codes from lookup tables, not user-facing field labels."""
+    text = label.strip()
+    if not text:
+        return False
+    # Starts with digit(s) followed by letters with no spaces → data code
+    if _DATA_CODE_PATTERN.match(text) and " " not in text:
+        return True
+    return False
 
 
 def _is_number_like(value) -> bool:
@@ -576,7 +629,6 @@ def _normalize_class_inputs(inputs: list[dict]) -> list[dict]:
 # Used when admin picks "Auto-generate Schema" option
 # (Section 4 of context file — no-schema fallback UI)
 def auto_generate_schema(filepath: str) -> dict:
->>>>>>> Stashed changes
     wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
     try:
         rater_sheet = next(
@@ -639,7 +691,6 @@ def _inject_schedule_mode(config: dict[str, Any]) -> None:
     if not schedule_rows:
         return
 
-<<<<<<< Updated upstream
     blocks = []
     start = schedule_rows[0]
     previous = schedule_rows[0]
@@ -703,13 +754,3 @@ def _inject_schedule_mode(config: dict[str, Any]) -> None:
         "rowActivePolicy": "any-non-empty-cell",
     }
     config["schedules"] = schedules
-=======
-    return {
-        "inputs": inputs,
-        "outputs": outputs,
-        "sheet": rater_sheet,
-        "auto_generated": True,
-        "has_schema_sheet": False,
-        "note": "Auto-generated schema — please review and edit field labels before saving."
-    }
->>>>>>> Stashed changes

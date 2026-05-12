@@ -14,7 +14,7 @@ Rate limit: ~40 req/min on free tier. We batch all fields into a
 single prompt to stay well within limits.
 
 Config (environment variables):
-  NIM_API_KEY   — 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
+  NIM_API_KEY   — set via backend/.env
   NIM_BASE_URL  — defaults to https://integrate.api.nvidia.com/v1
   NIM_MODEL     — defaults to meta/llama-3.1-8b-instruct
 """
@@ -26,14 +26,23 @@ import json
 import logging
 from typing import Optional
 
-import httpx
+try:
+    import httpx
+except ImportError:  # pragma: no cover - optional dependency in local dev
+    httpx = None
 
 logger = logging.getLogger(__name__)
 
-NIM_BASE_URL = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
-NIM_API_KEY = os.getenv("NIM_API_KEY", "")
-NIM_MODEL = os.getenv("NIM_MODEL", "meta/llama-3.1-8b-instruct")
 NIM_TIMEOUT = 30  # seconds
+
+
+def _get_nim_config() -> tuple[str, str, str]:
+    """Lazily read NIM environment variables at call time, not import time.
+    This ensures dotenv has already loaded the .env file."""
+    base_url = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    api_key = os.getenv("NIM_API_KEY", "")
+    model = os.getenv("NIM_MODEL", "meta/llama-3.1-8b-instruct")
+    return base_url, api_key, model
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +69,12 @@ async def enrich_fields(fields: list[dict]) -> list[dict]:
     If NIM_API_KEY is not set or the call fails, fields are returned
     unchanged — enrichment is best-effort, never blocking.
     """
-    if not NIM_API_KEY:
+    if httpx is None:
+        logger.warning("httpx is not installed — skipping enrichment")
+        return fields
+
+    _, api_key, _ = _get_nim_config()
+    if not api_key:
         logger.warning("NIM_API_KEY not set — skipping enrichment")
         return fields
 
@@ -103,23 +117,29 @@ Example:
 
 
 async def _call_nim(fields: list[dict]) -> list[dict]:
+    if httpx is None:
+        raise RuntimeError("httpx is required for NIM enrichment")
+
+    base_url, api_key, model = _get_nim_config()
     prompt = _build_prompt(fields)
 
     payload = {
-        "model": NIM_MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 1024,
         "temperature": 0.2,
     }
 
     headers = {
-        "Authorization": f"Bearer {NIM_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
+    logger.info("NIM enrichment: calling %s with model %s for %d fields", base_url, model, len(fields))
+
     async with httpx.AsyncClient(timeout=NIM_TIMEOUT) as client:
         response = await client.post(
-            f"{NIM_BASE_URL}/chat/completions",
+            f"{base_url}/chat/completions",
             json=payload,
             headers=headers,
         )
@@ -161,7 +181,12 @@ async def enrich_outputs(fields: list[dict]) -> list[dict]:
     Same as enrich_fields but for output fields. Separated so the prompt
     can frame them correctly as calculated results, not user inputs.
     """
-    if not NIM_API_KEY or not fields:
+    if httpx is None:
+        logger.warning("httpx is not installed — skipping output enrichment")
+        return fields
+
+    _, api_key, _ = _get_nim_config()
+    if not api_key or not fields:
         return fields
 
     for f in fields:
@@ -203,20 +228,27 @@ Example:
 
 async def _call_nim_raw(prompt: str, original_fields: list[dict]) -> list[dict]:
     """Internal: call NIM with a custom prompt, merge results back."""
+    if httpx is None:
+        raise RuntimeError("httpx is required for NIM enrichment")
+
+    base_url, api_key, model = _get_nim_config()
+
     payload = {
-        "model": NIM_MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 512,
         "temperature": 0.2,
     }
     headers = {
-        "Authorization": f"Bearer {NIM_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
+    logger.info("NIM output enrichment: calling %s for %d output fields", base_url, len(original_fields))
+
     async with httpx.AsyncClient(timeout=NIM_TIMEOUT) as client:
         response = await client.post(
-            f"{NIM_BASE_URL}/chat/completions",
+            f"{base_url}/chat/completions",
             json=payload,
             headers=headers,
         )

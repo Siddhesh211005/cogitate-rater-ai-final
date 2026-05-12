@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -9,8 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-<<<<<<< Updated upstream
-=======
 import {
   Select,
   SelectContent,
@@ -18,8 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import NoSchemaFallback from "@/components/NoSchemaFallback";
->>>>>>> Stashed changes
 import EngineSelector from "@/components/EngineSelector";
 import NoSchemaFallback from "@/components/NoSchemaFallback";
 
@@ -43,49 +39,42 @@ interface FieldDef {
 interface ParsedConfig {
   slug?: string;
   name?: string;
-<<<<<<< Updated upstream
-  sheet: string;
-=======
   sheet?: string;
->>>>>>> Stashed changes
   inputs: FieldDef[];
   outputs: FieldDef[];
 }
 
-<<<<<<< Updated upstream
 interface NoSchemaUpload {
   upload_id: string;
   filepath: string;
 }
 
-function slugify(value: string) {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "") || "uploaded-rater"
-  );
+function slugify(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "uploaded-rater";
 }
 
-function defaultsFromConfig(config: ParsedConfig) {
+function defaultsFromConfig(config: ParsedConfig): Record<string, FieldValue> {
   const defaults: Record<string, FieldValue> = {};
-  config.inputs?.forEach((field) => {
+  (config.inputs ?? []).forEach((field) => {
     defaults[field.field] = field.default ?? "";
   });
   return defaults;
-=======
-function toSlug(value: string): string {
-  const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return slug || "rater";
 }
 
 function formatOutputValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "string" && ["", "empty", "none", "null"].includes(value.trim().toLowerCase())) {
-    return "—";
+  if (value === null || value === undefined) return "-";
+  if (
+    typeof value === "string" &&
+    ["", "empty", "none", "null"].includes(value.trim().toLowerCase())
+  ) {
+    return "-";
   }
   return String(value);
->>>>>>> Stashed changes
 }
 
 export default function UploadPage() {
@@ -96,7 +85,6 @@ export default function UploadPage() {
   const [warmStatus, setWarmStatus] = useState("");
   const [parsedConfig, setParsedConfig] = useState<ParsedConfig | null>(null);
   const [raterName, setRaterName] = useState("");
-  const [raterType] = useState("custom");
   const [testInputs, setTestInputs] = useState<Record<string, FieldValue>>({});
   const [testOutputs, setTestOutputs] = useState<Record<string, FieldValue> | null>(null);
   const [testLoading, setTestLoading] = useState(false);
@@ -107,62 +95,78 @@ export default function UploadPage() {
   const [noSchemaUpload, setNoSchemaUpload] = useState<NoSchemaUpload | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const onDrop = useCallback((accepted: File[]) => {
-    if (accepted[0]) {
+  const raterType = "custom";
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
+
+  const onDrop = useCallback(
+    (accepted: File[]) => {
+      if (!accepted[0]) return;
       setFile(accepted[0]);
-      if (!raterName) setRaterName(accepted[0].name.replace(/\.xlsx?$/i, ""));
-    }
-  }, [raterName]);
+      if (!raterName.trim()) {
+        setRaterName(accepted[0].name.replace(/\.xlsx?$/i, ""));
+      }
+    },
+    [raterName]
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx", ".xlsm", ".xls"],
     },
     maxFiles: 1,
   });
 
-  function pollWarmStatus(id: string) {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-
-<<<<<<< Updated upstream
-    intervalRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/excel/warm-status/${id}`);
-        const data = await res.json();
-        setWarmStatus(data.status);
-=======
-  if (!raterName.trim()) {
-    setError("Please enter a rater name before uploading.");
-    return;
+  function stopPolling() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
   }
 
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("name", raterName.trim());          // ← was missing
-  fd.append("rater_type", raterType);           // ← was missing
->>>>>>> Stashed changes
+  function pollWarmStatus(id: string, targetEngine: Engine) {
+    stopPolling();
 
-        if (data.status === "ready") {
-          clearInterval(intervalRef.current!);
-          intervalRef.current = null;
-          const config = data.parsed_config ?? data.config;
+    intervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/${targetEngine}/warm-status/${id}`);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(
+            typeof data.detail === "string" ? data.detail : "Warm-up failed."
+          );
+        }
+
+        const status = data?.session?.status ?? data?.status ?? "waiting";
+        const config = data?.session?.config ?? data?.parsed_config ?? data?.config;
+        setWarmStatus(status);
+
+        if (status === "ready" || status === "parsed") {
+          stopPolling();
+          if (!config) {
+            throw new Error("Warm status did not include parsed config.");
+          }
           setParsedConfig(config);
           setTestInputs(defaultsFromConfig(config));
           setStep(3);
         }
 
-<<<<<<< Updated upstream
-        if (data.status === "failed" || data.status === "error") {
-          clearInterval(intervalRef.current!);
-          intervalRef.current = null;
+        if (status === "failed" || status === "error") {
+          stopPolling();
           setError(data.error_message ?? "Warm-up failed.");
           setStep(1);
         }
-      } catch {
-        clearInterval(intervalRef.current!);
-        intervalRef.current = null;
-        setError("Lost connection during warm-up.");
+      } catch (err) {
+        stopPolling();
+        setError(err instanceof Error ? err.message : "Lost connection during warm-up.");
         setStep(1);
       }
     }, 1500);
@@ -170,11 +174,18 @@ export default function UploadPage() {
 
   async function handleUpload() {
     if (!file || !engine) return;
+    if (!raterName.trim()) {
+      setError("Please enter a rater name before uploading.");
+      return;
+    }
+
     setError("");
+    setTestOutputs(null);
+    setNoSchemaDetected(false);
 
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("name", raterName || file.name.replace(/\.xlsx?$/i, ""));
+    fd.append("name", raterName.trim());
     fd.append("rater_type", raterType);
 
     const endpoint = engine === "excel" ? "/api/excel/upload" : "/api/schema/upload";
@@ -184,12 +195,20 @@ export default function UploadPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.detail ?? `Upload failed (${res.status})`);
+        const msg =
+          typeof data.detail === "string"
+            ? data.detail
+            : Array.isArray(data.detail)
+            ? data.detail.map((e: { msg?: string }) => e.msg).filter(Boolean).join(", ")
+            : `Upload failed (${res.status})`;
+        setError(msg);
         return;
       }
 
-      if (data.no_schema_detected) {
-        setNoSchemaUpload({ upload_id: data.upload_id, filepath: data.filepath });
+      if (data.status === "no_schema" || data.no_schema_detected) {
+        if (data.upload_id && data.filepath) {
+          setNoSchemaUpload({ upload_id: data.upload_id, filepath: data.filepath });
+        }
         setNoSchemaDetected(true);
         return;
       }
@@ -199,145 +218,55 @@ export default function UploadPage() {
         return;
       }
 
+      const config = data.config ?? data.parsed_config;
       setUploadId(data.upload_id);
-      setRaterName(raterName || file.name.replace(/\.xlsx?$/i, ""));
 
       if (engine === "excel") {
+        setWarmStatus(data.warm_status ?? "warming");
         setStep(2);
-        pollWarmStatus(data.upload_id);
-      } else {
-        const config = data.parsed_config ?? data.config;
-        setParsedConfig(config);
-        setTestInputs(defaultsFromConfig(config));
-=======
-  try {
-    const res = await fetch(endpoint, { method: "POST", body: fd });
-    const data = await res.json();
-
-    if (!res.ok) {
-      // ← Fix React crash: safely stringify any error shape
-      const msg =
-        typeof data.detail === "string"
-          ? data.detail
-          : Array.isArray(data.detail)
-          ? data.detail.map((e: any) => e.msg).join(", ")
-          : `Upload failed (${res.status})`;
-      setError(msg);
-      return;
-    }
-
-    if (data.status === "no_schema") {
-      setNoSchemaDetected(true);
-      return;
-    }
-
-    if (!data.upload_id) {
-      setError("Backend did not return an upload_id.");
-      return;
-    }
-
-    const config = data.config ?? data.parsed_config;
-    if (!config) {
-      setError("Backend did not return parsed config.");
-      return;
-    }
-    setUploadId(data.upload_id);
-    setParsedConfig(config);
-
-    // Set default test inputs from config
-    const defaults: Record<string, any> = {};
-    config?.inputs?.forEach((f: FieldDef) => {
-      defaults[f.field] = f.default ?? "";
-    });
-    setTestInputs(defaults);
-
-    setStep(engine === "excel" ? 2 : 3); // schema goes straight to step 3
-    if (engine === "excel") pollWarmStatus(data.upload_id);
-
-  } catch {
-    setError("Upload failed. Is the backend running?");
-  }
-}
-  // ── Step 2: Poll warm status ─────────────────────────────────────────────
- const intervalRef = useRef<NodeJS.Timeout | null>(null);
-
-function pollWarmStatus(id: string) {
-  if (intervalRef.current) clearInterval(intervalRef.current);
-
-  intervalRef.current = setInterval(async () => {
-    try {
-      if (!engine) return;
-      const res = await fetch(`/api/${engine}/warm-status/${id}`);
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(typeof data.detail === "string" ? data.detail : "Warm-up failed.");
+        pollWarmStatus(data.upload_id, "excel");
+        return;
       }
 
-      const status = data?.session?.status ?? data?.status ?? "waiting";
-      const config = data?.session?.config ?? data?.parsed_config ?? data?.config;
-      setWarmStatus(status);
-
-      if (status === "ready" || status === "parsed") {
-        clearInterval(intervalRef.current!);
-        intervalRef.current = null;
-        if (!config) {
-          throw new Error("Warm status did not include parsed config.");
-        }
-        setParsedConfig(config);
-        const defaults: Record<string, any> = {};
-        config?.inputs?.forEach((f: FieldDef) => {
-          defaults[f.field] = f.default ?? "";
-        });
-        setTestInputs(defaults);
->>>>>>> Stashed changes
-        setStep(3);
+      if (!config) {
+        setError("Backend did not return parsed config.");
+        return;
       }
+
+      setParsedConfig(config);
+      setTestInputs(defaultsFromConfig(config));
+      setStep(3);
     } catch {
       setError("Upload failed. Is the backend running?");
     }
   }
 
   async function handleTestCalculate() {
-<<<<<<< Updated upstream
-    if (!parsedConfig) return;
-    if (engine !== "excel") {
-      setError("Schema-engine upload testing is not wired here yet. Save it, then test from the client panel.");
-      return;
-    }
+    if (!parsedConfig || !engine || !uploadId) return;
 
-=======
-    if (!parsedConfig || !engine) return;
->>>>>>> Stashed changes
     setTestLoading(true);
     setTestOutputs(null);
     setError("");
 
-<<<<<<< Updated upstream
-=======
     const endpoint =
       engine === "excel" ? "/api/excel/test-calculate" : "/api/schema/test-calculate";
 
->>>>>>> Stashed changes
     try {
-      const res = await fetch("/api/excel/test-calculate", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ upload_id: uploadId, inputs: testInputs }),
       });
       const data = await res.json();
       if (!res.ok) {
-<<<<<<< Updated upstream
-        setError(data.detail ?? "Test calculation failed.");
-=======
         const msg =
           typeof data.detail === "string"
             ? data.detail
             : `Test calculation failed (${res.status})`;
         setError(msg);
->>>>>>> Stashed changes
         return;
       }
-      setTestOutputs(data.outputs);
+      setTestOutputs(data.outputs ?? null);
     } catch {
       setError("Test calculation failed.");
     } finally {
@@ -346,7 +275,8 @@ function pollWarmStatus(id: string) {
   }
 
   async function handleTestDownload() {
-    if (!parsedConfig || engine !== "excel") return;
+    if (!parsedConfig || engine !== "excel" || !uploadId) return;
+
     setDownloadLoading(true);
     setError("");
 
@@ -359,7 +289,9 @@ function pollWarmStatus(id: string) {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.detail ?? "Download failed.");
+        setError(
+          typeof data.detail === "string" ? data.detail : "Download failed."
+        );
         return;
       }
 
@@ -367,7 +299,7 @@ function pollWarmStatus(id: string) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${slugify(raterName || "test")}_calculated.xlsx`;
+      link.download = `${slugify(raterName || parsedConfig.name || "test")}_calculated.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -380,36 +312,29 @@ function pollWarmStatus(id: string) {
   }
 
   async function handleSave() {
-    if (!parsedConfig || !engine) return;
+    if (!parsedConfig || !engine || !uploadId) return;
+
     setSaving(true);
     setError("");
 
-    const slug = slugify(raterName || parsedConfig.name || "uploaded-rater");
+    const normalizedName = raterName.trim() || parsedConfig.name || "uploaded-rater";
+    const slug = slugify(normalizedName);
     const endpoint = engine === "excel" ? "/api/excel/save" : "/api/schema/save";
 
     try {
-<<<<<<< Updated upstream
-=======
-      const slug = toSlug(raterName);
-      const endpoint = engine === "excel" ? "/api/excel/save" : "/api/schema/save";
->>>>>>> Stashed changes
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           upload_id: uploadId,
-<<<<<<< Updated upstream
+          name: normalizedName,
           slug,
-          name: raterName || slug,
-=======
-          name: raterName,
-          slug,
->>>>>>> Stashed changes
           rater_type: raterType,
-          config: { ...parsedConfig, slug, name: raterName || slug },
+          config: { ...parsedConfig, slug, name: normalizedName },
         }),
       });
       const data = await res.json();
+
       if (res.ok && data.status === "ok") {
         setStep(4);
       } else {
@@ -428,7 +353,12 @@ function pollWarmStatus(id: string) {
 
   async function handleFallbackChoice(choice: "auto" | "switch" | "manual") {
     setNoSchemaDetected(false);
-    if (choice === "manual") return;
+
+    if (choice === "manual") {
+      setStep(1);
+      return;
+    }
+
     if (!noSchemaUpload) {
       setError("Missing uploaded workbook reference. Please re-upload.");
       return;
@@ -445,20 +375,35 @@ function pollWarmStatus(id: string) {
         }),
       });
       const data = await res.json();
+
       if (!res.ok) {
-        setError(data.detail ?? "Fallback failed.");
+        setError(
+          typeof data.detail === "string" ? data.detail : "Fallback failed."
+        );
         return;
       }
-      setUploadId(noSchemaUpload.upload_id);
-      setEngine(choice === "switch" ? "schema" : "excel");
+
+      const nextUploadId = data.upload_id ?? noSchemaUpload.upload_id;
+      const nextEngine: Engine = choice === "switch" ? "schema" : "excel";
+      setUploadId(nextUploadId);
+      setEngine(nextEngine);
+
       if (choice === "auto") {
         setStep(2);
-        pollWarmStatus(noSchemaUpload.upload_id);
-      } else {
-        setParsedConfig(data.config);
-        setTestInputs(defaultsFromConfig(data.config));
-        setStep(3);
+        setWarmStatus(data.warm_status ?? "warming");
+        pollWarmStatus(nextUploadId, "excel");
+        return;
       }
+
+      const config = data.config;
+      if (!config) {
+        setError("Fallback response did not include parsed config.");
+        return;
+      }
+
+      setParsedConfig(config);
+      setTestInputs(defaultsFromConfig(config));
+      setStep(3);
     } catch {
       setError("Fallback failed.");
     }
@@ -466,11 +411,11 @@ function pollWarmStatus(id: string) {
 
   return (
     <main className="min-h-screen bg-background p-8">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Upload Rater</h1>
-            <p className="text-muted-foreground mt-1">Step {step} of 4</p>
+            <p className="mt-1 text-muted-foreground">Step {step} of 4</p>
           </div>
           <Link href="/admin">
             <Button variant="outline">Back to Dashboard</Button>
@@ -478,7 +423,7 @@ function pollWarmStatus(id: string) {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+          <div className="mb-4 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -486,12 +431,22 @@ function pollWarmStatus(id: string) {
         {noSchemaDetected && <NoSchemaFallback onChoice={handleFallbackChoice} />}
 
         {!noSchemaDetected && step === 1 && (
-<<<<<<< Updated upstream
           <div className="space-y-6">
+            <div className="space-y-2">
+              <Label>Rater Name *</Label>
+              <Input
+                value={raterName}
+                onChange={(event) => setRaterName(event.target.value)}
+                placeholder="e.g. MPL Old Republic v2"
+              />
+            </div>
+
             <div
               {...getRootProps()}
-              className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-colors ${
-                isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+              className={`cursor-pointer rounded-2xl border-2 border-dashed p-12 text-center transition-colors ${
+                isDragActive
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50"
               }`}
             >
               <input {...getInputProps()} />
@@ -500,69 +455,30 @@ function pollWarmStatus(id: string) {
               ) : (
                 <>
                   <p className="text-lg font-medium">Drop your .xlsx rater here</p>
-                  <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
+                  <p className="mt-1 text-sm text-muted-foreground">or click to browse</p>
                 </>
               )}
             </div>
-=======
-  <div className="space-y-6">
-    {/* Rater name — required before upload */}
-    <div className="space-y-2">
-      <Label>Rater Name *</Label>
-      <Input
-        value={raterName}
-        onChange={(e) => setRaterName(e.target.value)}
-        placeholder="e.g. MPL Old Republic v2"
-      />
-    </div>
->>>>>>> Stashed changes
 
-    <div
-      {...getRootProps()}
-      className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-colors ${
-        isDragActive
-          ? "border-primary bg-primary/5"
-          : "border-border hover:border-primary/50"
-      }`}
-    >
-      <input {...getInputProps()} />
-      {file ? (
-        <p className="font-medium">{file.name}</p>
-      ) : (
-        <>
-          <p className="text-lg font-medium">Drop your .xlsx rater here</p>
-          <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
-        </>
-      )}
-    </div>
+            <EngineSelector selected={engine} onSelect={setEngine} />
 
-<<<<<<< Updated upstream
-            <Button className="w-full" disabled={!file || !engine} onClick={handleUpload}>
+            <Button
+              className="w-full"
+              disabled={!file || !engine || !raterName.trim()}
+              onClick={handleUpload}
+            >
               Upload & Parse
             </Button>
           </div>
         )}
-=======
-    <EngineSelector selected={engine} onSelect={setEngine} />
-
-    <Button
-      className="w-full"
-      disabled={!file || !engine || !raterName.trim()}
-      onClick={handleUpload}
-    >
-      Upload & Parse →
-    </Button>
-  </div>
-)}
->>>>>>> Stashed changes
 
         {step === 2 && (
-          <div className="text-center py-24 space-y-4">
+          <div className="space-y-4 py-24 text-center">
             <div className="flex justify-center">
-              <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>
             <p className="text-lg font-medium">Warming up Excel engine...</p>
-            <p className="text-muted-foreground text-sm capitalize">Status: {warmStatus}</p>
+            <p className="text-sm capitalize text-muted-foreground">Status: {warmStatus}</p>
           </div>
         )}
 
@@ -580,49 +496,42 @@ function pollWarmStatus(id: string) {
             <Separator />
 
             <div>
-              <h2 className="font-semibold mb-3">Inputs ({parsedConfig.inputs.length})</h2>
+              <h2 className="mb-3 font-semibold">
+                Inputs ({(parsedConfig.inputs ?? []).length})
+              </h2>
               <div className="space-y-2">
-                {parsedConfig.inputs.map((field) => (
-                  <div key={field.field} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                {(parsedConfig.inputs ?? []).map((field) => (
+                  <div
+                    key={field.field}
+                    className="flex items-center justify-between rounded-lg border bg-card p-3"
+                  >
                     <div>
-                      <p className="font-medium text-sm">{field.label}</p>
+                      <p className="text-sm font-medium">{field.label}</p>
                       <p className="text-xs text-muted-foreground">
                         {field.cell} - {field.type}
                         {field.group ? ` - ${field.group}` : ""}
                       </p>
                     </div>
-<<<<<<< Updated upstream
-                    <Input
-                      className="w-40 text-sm"
-                      value={String(testInputs[field.field] ?? "")}
-                      onChange={(event) =>
-                        setTestInputs((prev) => ({ ...prev, [field.field]: event.target.value }))
-                      }
-                    />
-=======
-                    {f.type === "dropdown" && f.options?.length > 0 ? (
+                    {field.type === "dropdown" && (field.options?.length ?? 0) > 0 ? (
                       <Select
                         value={
-                          testInputs[f.field] === undefined ||
-                          testInputs[f.field] === null ||
-                          testInputs[f.field] === ""
+                          testInputs[field.field] === undefined ||
+                          testInputs[field.field] === null ||
+                          testInputs[field.field] === ""
                             ? undefined
-                            : String(testInputs[f.field])
+                            : String(testInputs[field.field])
                         }
-                        onValueChange={(v) =>
-                          setTestInputs((prev) => ({
-                            ...prev,
-                            [f.field]: v,
-                          }))
+                        onValueChange={(value) =>
+                          setTestInputs((prev) => ({ ...prev, [field.field]: value }))
                         }
                       >
                         <SelectTrigger className="w-40 text-sm">
-                          <SelectValue placeholder="Select…" />
+                          <SelectValue placeholder="Select..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {f.options.map((opt) => (
-                            <SelectItem key={`${f.field}-${opt}`} value={opt}>
-                              {opt}
+                          {field.options?.map((option) => (
+                            <SelectItem key={`${field.field}-${option}`} value={String(option)}>
+                              {option}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -630,16 +539,15 @@ function pollWarmStatus(id: string) {
                     ) : (
                       <Input
                         className="w-40 text-sm"
-                        value={testInputs[f.field] ?? ""}
-                        onChange={(e) =>
+                        value={String(testInputs[field.field] ?? "")}
+                        onChange={(event) =>
                           setTestInputs((prev) => ({
                             ...prev,
-                            [f.field]: e.target.value,
+                            [field.field]: event.target.value,
                           }))
                         }
                       />
                     )}
->>>>>>> Stashed changes
                   </div>
                 ))}
               </div>
@@ -648,24 +556,24 @@ function pollWarmStatus(id: string) {
             <Separator />
 
             <div>
-              <h2 className="font-semibold mb-3">Outputs ({parsedConfig.outputs.length})</h2>
+              <h2 className="mb-3 font-semibold">
+                Outputs ({(parsedConfig.outputs ?? []).length})
+              </h2>
               <div className="space-y-2">
-                {parsedConfig.outputs.map((field) => (
-                  <div key={field.field} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                {(parsedConfig.outputs ?? []).map((field) => (
+                  <div
+                    key={field.field}
+                    className="flex items-center justify-between rounded-lg border bg-card p-3"
+                  >
                     <div>
-                      <p className="font-medium text-sm">{field.label}</p>
+                      <p className="text-sm font-medium">{field.label}</p>
                       <p className="text-xs text-muted-foreground">
                         {field.cell} - {field.type}
                       </p>
                     </div>
                     {testOutputs && (
-<<<<<<< Updated upstream
                       <Badge variant={field.primary ? "default" : "secondary"}>
-                        {testOutputs[field.field] ?? "-"}
-=======
-                      <Badge variant={f.primary ? "default" : "secondary"}>
-                        {formatOutputValue(testOutputs[f.field])}
->>>>>>> Stashed changes
+                        {formatOutputValue(testOutputs[field.field])}
                       </Badge>
                     )}
                     {testLoading && <Skeleton className="h-6 w-20" />}
@@ -675,15 +583,29 @@ function pollWarmStatus(id: string) {
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button variant="outline" className="flex-1" onClick={handleTestCalculate} disabled={testLoading}>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={handleTestCalculate}
+                disabled={testLoading}
+              >
                 {testLoading ? "Calculating..." : "Test Calculate"}
               </Button>
               {engine === "excel" && (
-                <Button variant="outline" className="flex-1" onClick={handleTestDownload} disabled={downloadLoading}>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={handleTestDownload}
+                  disabled={downloadLoading}
+                >
                   {downloadLoading ? "Downloading..." : "Test Download"}
                 </Button>
               )}
-              <Button className="flex-1" onClick={handleSave} disabled={saving || !raterName}>
+              <Button
+                className="flex-1"
+                onClick={handleSave}
+                disabled={saving || !raterName.trim()}
+              >
                 {saving ? "Saving..." : "Save Rater"}
               </Button>
             </div>
@@ -691,19 +613,29 @@ function pollWarmStatus(id: string) {
         )}
 
         {step === 4 && (
-          <div className="text-center py-24 space-y-4">
+          <div className="space-y-4 py-24 text-center">
             <h2 className="text-2xl font-bold">Rater Saved</h2>
-            <p className="text-muted-foreground">{raterName} is now live and available to clients.</p>
+            <p className="text-muted-foreground">
+              {raterName} is now live and available to clients.
+            </p>
             <div className="flex justify-center gap-3 pt-4">
               <Link href="/admin">
                 <Button variant="outline">Dashboard</Button>
               </Link>
               <Button
                 onClick={() => {
+                  stopPolling();
                   setStep(1);
-                  setFile(null);
                   setEngine(null);
+                  setFile(null);
+                  setUploadId("");
+                  setWarmStatus("");
                   setParsedConfig(null);
+                  setTestInputs({});
+                  setTestOutputs(null);
+                  setError("");
+                  setNoSchemaDetected(false);
+                  setNoSchemaUpload(null);
                 }}
               >
                 Upload Another

@@ -5,13 +5,10 @@ import os
 # ── Main calculate function ───────────────────────────────────
 # Called by both /api/schema/calculate and /api/raters/{slug}/calculate
 def calculate(rater: dict, inputs: dict) -> dict:
-    config   = rater.get("config", {})
-    filepath = rater.get("workbook_local_path") or rater.get("workbook_blob_url", "")
+    from engines.excel_engine import calculate as excel_calculate
 
-    if not filepath or not os.path.exists(filepath):
-        raise FileNotFoundError(f"Workbook not found at: {filepath}")
-
-    return calculate_from_file(filepath, config, inputs)
+    outputs, _meta = excel_calculate(rater, inputs)
+    return outputs
 
 
 # ── Core calculation logic ────────────────────────────────────
@@ -19,7 +16,8 @@ def calculate_from_file(filepath: str, config: dict, inputs: dict) -> dict:
     # Schema engine now reuses the hardened Excel calculation path so both
     # engines produce consistent values across test-calculate and live rating.
     from engines.excel_engine import calculate_from_file as excel_calculate_from_file
-    return excel_calculate_from_file(filepath, config, inputs)
+    outputs, _meta = excel_calculate_from_file(filepath, config, inputs)
+    return outputs
 
 
 # ── Evaluate using Python formulas library ────────────────────

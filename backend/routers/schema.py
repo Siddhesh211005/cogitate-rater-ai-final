@@ -55,6 +55,11 @@ async def upload_rater(
 
         # Check if _Schema sheet exists
         has_schema_sheet = config.get("has_schema_sheet", False)
+        if not has_schema_sheet:
+            from services.nim_enrichment import enrich_fields, enrich_outputs
+
+            config["inputs"] = await enrich_fields(config.get("inputs") or [])
+            config["outputs"] = await enrich_outputs(config.get("outputs") or [])
 
         # Store session in CosmosDB
         from db.cosmos import create_session
@@ -135,13 +140,9 @@ async def save_rater(payload: dict):
             engine="schema",
             rater_type=rater_type,
             config=config,
-<<<<<<< Updated upstream
-            workbook_local_path=workbook_local_path,
-            has_schema_sheet=config.get("has_schema_sheet", False)
-=======
             workbook_blob_url=filepath,
+            workbook_local_path=workbook_local_path,
             has_schema_sheet=session.get("has_schema_sheet", config.get("has_schema_sheet", False))
->>>>>>> Stashed changes
         )
 
         return {
@@ -217,8 +218,6 @@ def delete_schema_rater(rater_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-<<<<<<< Updated upstream
-=======
     
 @router.post("/test-calculate")
 async def test_calculate(payload: dict):
@@ -284,4 +283,3 @@ def warm_status(upload_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
->>>>>>> Stashed changes

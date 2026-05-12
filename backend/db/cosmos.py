@@ -1,6 +1,8 @@
 import json
 import os
 import uuid
+import logging
+import ssl
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,8 @@ from dotenv import load_dotenv
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 LOCAL_DB_DIR = BACKEND_DIR / "local_db"
@@ -89,36 +93,104 @@ class LocalContainer:
             ]
         if "@uid" in params:
             items = [item for item in items if item.get("upload_id") == params["@uid"]]
+        if "@id" in params:
+            items = [item for item in items if item.get("id") == params["@id"]]
 
         if query and "ORDER BY c.calculated_at DESC" in query:
             items.sort(key=lambda item: item.get("calculated_at", ""), reverse=True)
 
+        # Handle engine filter in raw query (e.g. "WHERE c.engine = 'excel'")
+        if query and "@engine" not in params:
+            import re
+            engine_match = re.search(r"c\.engine\s*=\s*'(\w+)'", query or "")
+            if engine_match:
+                engine_val = engine_match.group(1)
+                items = [item for item in items if item.get("engine") == engine_val]
+
         return items
 
 
+# ── Partition key mapping per container ────────────────────────
+_PARTITION_KEYS = {
+    "raters": "/engine",
+    "records": "/rater_slug",
+    "sessions": "/upload_id",
+}
+
+
 def _make_cosmos_container(name: str):
+    """Try to connect to CosmosDB Emulator. Falls back to LocalContainer
+    if the SDK isn't installed or connection fails."""
     try:
-        from azure.cosmos import CosmosClient
-    except Exception:
+        from azure.cosmos import CosmosClient, PartitionKey
+        from azure.cosmos.exceptions import CosmosResourceNotFoundError
+    except ImportError:
+        logger.warning("azure-cosmos SDK not installed — using local JSON file DB for '%s'", name)
         return LocalContainer(name)
 
     endpoint = os.getenv("COSMOS_ENDPOINT")
     key = os.getenv("COSMOS_KEY")
-    database = os.getenv("COSMOS_DB") or os.getenv("COSMOS_DATABASE")
-    if not endpoint or not key or not database:
+    database_name = os.getenv("COSMOS_DB") or os.getenv("COSMOS_DATABASE")
+    if not endpoint or not key or not database_name:
+        logger.warning(
+            "COSMOS_ENDPOINT/COSMOS_KEY/COSMOS_DB not set — using local JSON file DB for '%s'", name
+        )
         return LocalContainer(name)
 
     try:
+        # Disable SSL verification warnings for the emulator's self-signed cert
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         client = CosmosClient(url=endpoint, credential=key, connection_verify=False)
-        db = client.get_database_client(database)
-        return db.get_container_client(name)
-    except Exception:
+
+        # Auto-create database if it doesn't exist
+        try:
+            db = client.create_database_if_not_exists(id=database_name)
+            logger.info("CosmosDB database '%s' ready", database_name)
+        except Exception as db_err:
+            logger.warning("Failed to create/get database '%s': %s — trying get_database_client", database_name, db_err)
+            db = client.get_database_client(database_name)
+
+        # Auto-create container with correct partition key if it doesn't exist
+        partition_key_path = _PARTITION_KEYS.get(name, "/id")
+        try:
+            container = db.create_container_if_not_exists(
+                id=name,
+                partition_key=PartitionKey(path=partition_key_path),
+            )
+            logger.info(
+                "CosmosDB container '%s' ready (partition key: %s) at %s",
+                name, partition_key_path, endpoint
+            )
+        except Exception as container_err:
+            logger.warning(
+                "Failed to create container '%s': %s — trying get_container_client",
+                name, container_err
+            )
+            container = db.get_container_client(name)
+
+        # Quick health check — verify we can read container properties
+        container.read()
+        logger.info("CosmosDB container '%s' health check passed ✓", name)
+        return container
+
+    except Exception as exc:
+        logger.error(
+            "CosmosDB connection failed for '%s' at %s: %s — falling back to local JSON file DB",
+            name, endpoint, exc
+        )
         return LocalContainer(name)
 
 
 raters_container = _make_cosmos_container("raters")
 records_container = _make_cosmos_container("records")
 sessions_container = _make_cosmos_container("sessions")
+
+# Log which storage backend is active
+for _name, _container in [("raters", raters_container), ("records", records_container), ("sessions", sessions_container)]:
+    _mode = "CosmosDB" if not isinstance(_container, LocalContainer) else "Local JSON"
+    logger.info("Container '%s' → %s", _name, _mode)
 
 
 def create_rater(
@@ -146,7 +218,9 @@ def create_rater(
         "workbook_local_path": workbook_local_path,
         "has_schema_sheet": has_schema_sheet,
     }
-    return raters_container.create_item(body=doc)
+    result = raters_container.create_item(body=doc)
+    logger.info("Created rater '%s' (id=%s, engine=%s)", slug, doc["id"], engine)
+    return result
 
 
 def get_rater(rater_id: str, engine: str | None = None) -> dict[str, Any]:
@@ -182,6 +256,7 @@ def get_rater_by_slug(slug: str) -> dict[str, Any] | None:
 
 def delete_rater(rater_id: str, engine: str | None = None) -> None:
     raters_container.delete_item(item=rater_id, partition_key=engine)
+    logger.info("Deleted rater id=%s", rater_id)
 
 
 def create_record(
@@ -200,7 +275,9 @@ def create_record(
         "calculated_at": _now_iso(),
         "downloaded_workbook_url": downloaded_workbook_url,
     }
-    return records_container.create_item(body=doc)
+    result = records_container.create_item(body=doc)
+    logger.info("Created record for rater '%s' (id=%s)", rater_slug, doc["id"])
+    return result
 
 
 def list_records(rater_slug: str) -> list[dict[str, Any]]:
@@ -225,7 +302,9 @@ def create_session(upload_id: str, data: dict[str, Any]) -> dict[str, Any]:
         "created_at": _now_iso(),
         **data,
     }
-    return sessions_container.create_item(body=doc)
+    result = sessions_container.create_item(body=doc)
+    logger.info("Created session upload_id=%s", upload_id)
+    return result
 
 
 def get_session(session_id: str, upload_id: str | None = None) -> dict[str, Any]:
