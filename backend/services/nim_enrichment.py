@@ -14,7 +14,7 @@ Rate limit: ~40 req/min on free tier. We batch all fields into a
 single prompt to stay well within limits.
 
 Config (environment variables):
-  NIM_API_KEY   — set via backend/.env
+  NIM_API_KEY = os.getenv("NIM_API_KEY", "")
   NIM_BASE_URL  — defaults to https://integrate.api.nvidia.com/v1
   NIM_MODEL     — defaults to meta/llama-3.1-8b-instruct
 """
