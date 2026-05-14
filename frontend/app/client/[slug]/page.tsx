@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import RatingForm from "@/components/RatingForm";
 import ResultsDashboard from "@/components/ResultsDashboard";
+import { validateFieldValue } from "@/lib/validation/inputValidation";
 
 interface FieldDef {
   field: string;
@@ -26,6 +27,7 @@ interface RaterConfig {
   sheet: string;
   inputs: FieldDef[];
   outputs: FieldDef[];
+  workbook_local_path?: string;
 }
 
 export default function ClientRaterPage() {
@@ -37,6 +39,8 @@ export default function ClientRaterPage() {
   const [outputs, setOutputs] = useState<Record<string, string | number | boolean | null | undefined> | null>(null);
   const [calculating, setCalculating] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string | undefined>>({});
+  const [validationWarnings, setValidationWarnings] = useState<Record<string, string | undefined>>({});
 
   useEffect(() => {
     fetch(`/api/raters/${slug}/config`)
@@ -56,13 +60,19 @@ export default function ClientRaterPage() {
           );
         }
 
-        setConfig(loadedConfig);
+        const workbookPath = data?.rater?.workbook_local_path;
+        const resolvedConfig = workbookPath
+          ? { ...loadedConfig, workbook_local_path: workbookPath }
+          : loadedConfig;
+        setConfig(resolvedConfig);
         // Seed defaults
         const defaults: Record<string, string | number | boolean | null | undefined> = {};
         loadedConfig.inputs?.forEach((f: FieldDef) => {
           defaults[f.field] = f.default ?? "";
         });
         setInputs(defaults);
+        setValidationErrors({});
+        setValidationWarnings({});
       })
       .catch((err: unknown) =>
         setError(
@@ -80,6 +90,16 @@ export default function ClientRaterPage() {
     setError("");
 
     try {
+      try {
+        await fetch("http://localhost:8000/api/validation/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs, config }),
+        });
+      } catch (err) {
+        console.warn("Validation failed", err);
+      }
+
       const res = await fetch(`/api/raters/${slug}/calculate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,6 +122,21 @@ export default function ClientRaterPage() {
     } finally {
       setCalculating(false);
     }
+  }
+
+  function handleInputChange(
+    field: string,
+    value: string | number | boolean | null | undefined
+  ) {
+    setInputs((prev) => ({ ...prev, [field]: value }));
+
+    if (!config) return;
+    const fieldDef = config.inputs?.find((item) => item.field === field);
+    if (!fieldDef) return;
+
+    const { error, warning } = validateFieldValue(fieldDef, value);
+    setValidationErrors((prev) => ({ ...prev, [field]: error }));
+    setValidationWarnings((prev) => ({ ...prev, [field]: warning }));
   }
 
   if (loading) {
@@ -153,9 +188,9 @@ export default function ClientRaterPage() {
           <RatingForm
             inputs={config.inputs}
             values={inputs}
-            onChange={(field, value) =>
-              setInputs((prev) => ({ ...prev, [field]: value }))
-            }
+            onChange={handleInputChange}
+            errors={validationErrors}
+            warnings={validationWarnings}
           />
         )}
 

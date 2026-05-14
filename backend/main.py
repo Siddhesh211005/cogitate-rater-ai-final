@@ -16,7 +16,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 sys.path.insert(0, os.path.dirname(__file__))
 
 # ── Routers ───────────────────────────────────────────────────
-from routers import schema, excel, raters
+from routers import schema, excel, raters, validation
 
 app = FastAPI(
     title="Cogitate Unified Rater API",
@@ -40,6 +40,7 @@ app.add_middleware(
 app.include_router(schema.router,  prefix="/api/schema",  tags=["Schema Engine"])
 app.include_router(excel.router,   prefix="/api/excel",   tags=["Excel Engine"])
 app.include_router(raters.router,  prefix="/api/raters",  tags=["Raters (Unified)"])
+app.include_router(validation.router, prefix="/api/validation", tags=["Validation"])
 
 # ── Health check ──────────────────────────────────────────────
 @app.get("/health", tags=["Health"])

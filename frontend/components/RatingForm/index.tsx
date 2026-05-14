@@ -23,9 +23,11 @@ interface Props {
   inputs: FieldDef[];
   values: Record<string, string | number | boolean | null | undefined>;
   onChange: (field: string, value: string | number | boolean | null | undefined) => void;
+  errors?: Record<string, string | undefined>;
+  warnings?: Record<string, string | undefined>;
 }
 
-export default function RatingForm({ inputs, values, onChange }: Props) {
+export default function RatingForm({ inputs, values, onChange, errors, warnings }: Props) {
   // Group fields
   const groups: Record<string, FieldDef[]> = {};
   inputs.forEach((f) => {
@@ -77,6 +79,14 @@ export default function RatingForm({ inputs, values, onChange }: Props) {
                     onChange={(e) => onChange(f.field, e.target.value)}
                     placeholder={String(f.default ?? "")}
                   />
+                )}
+
+                {errors?.[f.field] && (
+                  <p className="text-xs text-destructive">{errors[f.field]}</p>
+                )}
+
+                {!errors?.[f.field] && warnings?.[f.field] && (
+                  <p className="text-xs text-muted-foreground">{warnings[f.field]}</p>
                 )}
               </div>
             ))}
